@@ -7,6 +7,9 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 from bson.code import Code
 import re
+import numpy as np
+from PIL import Image
+from os import path
 import bson
 
 # Configuracion de las caracteristicas de los servicios
@@ -25,6 +28,8 @@ class Application( tornado.web.Application ):
             (r"/followersAll", getFollowersAll),
             (r"/general", getInfoGeneral),
             (r"/generalDos", getInfoGeneralDos),
+            (r"/getInfoGeneralTres", getInfoGeneralTres),
+            (r"/getInfoGeneralCuatro", getInfoGeneralCuatro),
             (r"/geo", getGeoSentiment),
             (r"/getLastTweetsByAccount/(.*)", getLastTweetsByAccount),
             (r"/getLastReplayByTweetID/(.*)", getLastReplayByTweetID),
@@ -72,6 +77,70 @@ class getInfoGeneralDos(BaseHandler):
 
         json.append(response_json)
         self.write(dumps(json))
+
+
+class getInfoGeneralTres(BaseHandler):
+    def get(self):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+        personajes = ['CGurisattiNTN24', 'DanielSamperO', 'ELTIEMPO', 'elespectador', 'NoticiasCaracol', 'NoticiasRCN',
+                      'CaracolRadio', 'BluRadioCo', 'JuanManSantos', 'ClaudiaLopez', 'German_Vargas', 'AlvaroUribeVel',
+                      'AndresPastrana_', 'TimoFARC', 'OIZuluaga', 'A_OrdonezM', 'JSantrich_FARC', 'IvanDuque',
+                      'mluciaramirez', 'petrogustavo', 'DeLaCalleHum', 'FARC_EPaz'];
+
+        json = []
+
+
+        for persona in personajes:
+            response_json = {}
+            response_json["name"] = persona
+            series = mine.aggregate([
+                {"$match": {"screen_name":persona}},
+                {"$group": {"_id": "$sentiment", "value": {"$sum": 1}}},
+                {"$project": {
+                    "name": "$_id",
+                    "value": 1,
+                    "_id":0
+                }}])
+
+            response_json["series"] = series
+            json.append(response_json)
+
+        self.write(dumps(json))
+
+class getInfoGeneralCuatro(BaseHandler):
+    def get(self):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+        personajes = ['CGurisattiNTN24', 'DanielSamperO', 'ELTIEMPO', 'elespectador', 'NoticiasCaracol', 'NoticiasRCN',
+                      'CaracolRadio', 'BluRadioCo', 'JuanManSantos', 'ClaudiaLopez', 'German_Vargas', 'AlvaroUribeVel',
+                      'AndresPastrana_', 'TimoFARC', 'OIZuluaga', 'A_OrdonezM', 'JSantrich_FARC', 'IvanDuque',
+                      'mluciaramirez', 'petrogustavo', 'DeLaCalleHum', 'FARC_EPaz'];
+
+        json = []
+
+
+        for persona in personajes:
+            response_json = {}
+            response_json["name"] = persona
+            series = mine.aggregate([
+                {"$match": {"entities_mentions":persona}},
+                {"$group": {"_id": "$sentiment", "value": {"$sum": 1}}},
+                {"$project": {
+                    "name": "$_id",
+                    "value": 1,
+                    "_id":0
+                }}])
+
+            response_json["series"] = series
+            json.append(response_json)
+
+        self.write(dumps(json))
+
+
+
 
 class getGeoSentiment(BaseHandler):
     def get(self):
@@ -170,11 +239,14 @@ class getTopics(BaseHandler):
 
 class doCloud(BaseHandler):
     def get(self):
+        d = path.dirname(__file__)
+        #col_mask = np.array(Image.open(path.join(d, "images/col.png")))
+        #text = "y es es es es es es es es es es es es forcing the closing of the figure window in my giant loop, so I do"
+        text = open(path.join(d, 'images/red.txt')).read()
 
-
-        text = "y forcing the closing of the figure window in my giant loop, so I do"
-
-        wordcloud = WordCloud(max_font_size=200).generate(text)
+        wordcloud = WordCloud( max_font_size=1000).generate(text)
+        #wordcloud = WordCloud(mask=col_mask, max_font_size=1000).generate(text)
+       # fig = plt.figure(figsize=(4.2,6.2))
         fig = plt.figure()
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis("off")
