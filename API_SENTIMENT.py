@@ -4,13 +4,16 @@ from json import dumps
 from pymongo import MongoClient
 from bson.json_util import dumps
 from wordcloud import WordCloud
+from PIL import Image
+import numpy as np
 import matplotlib.pyplot as plt
 from bson.code import Code
 import re
-import numpy as np
-from PIL import Image
+import json
 from os import path
-import bson
+import sys
+reload(sys)
+sys.setdefaultencoding('utf8')
 
 # Configuracion de las caracteristicas de los servicios
 class BaseHandler( tornado.web.RequestHandler ):
@@ -36,11 +39,13 @@ class Application( tornado.web.Application ):
             (r"/getLastSentimentReplayByTweetID/(.*)", getLastSentimentReplayByTweetID),
             (r"/topics", getTopics),
             (r"/images/(.*)", tornado.web.StaticFileHandler, {'path': "./images"}),
-            (r"/cloud", doCloud),
+            (r"/cloudUser/(.*)", doCloudUser),
+            (r"/cloudTopic/(.*)", doCloudTopic),
             (r"/getMostFrequentWordsByUser", getMostFrequentWordsByUser),
             (r"/getFrequencyByTopic", getFrequencyByTopic),
             (r"/getFrequencyByTopicByUsername/(.*)", getFrequencyByTopicByUsername),
-            (r"/getFrequencyByTopicUsedByUser/(.*)", getFrequencyByTopicUsedByUser)
+            (r"/getFrequencyByTopicUsedByUser/(.*)", getFrequencyByTopicUsedByUser),
+            (r"/getTweetsByHastag/(.*)", getTweetsByHastag)
 		]
         tornado.web.Application.__init__( self, handlers )
 
@@ -139,9 +144,6 @@ class getInfoGeneralCuatro(BaseHandler):
 
         self.write(dumps(json))
 
-
-
-
 class getGeoSentiment(BaseHandler):
     def get(self):
         client = MongoClient('bigdata-mongodb-01', 27017)
@@ -226,7 +228,7 @@ class getLastSentimentReplayByTweetID(BaseHandler):
         mine = db['tweets']
         self.write(dumps(mine.aggregate([{'$match': { 'in_reply_to_status_id': long(float(str(id))) } }, { '$group': { '_id': '$sentiment', 'count': { '$sum': 1 }}},{ '$project' : { '_id': 0, 'name': '$_id', 'value': '$count' } }])))
 
-#EN PRODUCCION
+#EN DESARROLLO
 class getTopics(BaseHandler):
     def get(self):
         client = MongoClient('bigdata-mongodb-01', 27017)
@@ -234,24 +236,132 @@ class getTopics(BaseHandler):
         mine = db['trends']
         self.write(dumps(mine.find().limit(2)))
 
+class doCloudUser(BaseHandler):
+    def get(self, name):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+
+        map = Code( """function()
+        {var
+        text = this.text;
+        var
+        wordArr = text.toLowerCase().split(" ");
+        var
+        stoppedwords = 'el, la, de, es, a, un, una, que, de, por, para, como, al, ?, !, +, y, no, los, las, en, se, lo, con, o, del, q, su, //t, https, si, mas, le, cuando, ellos, este, son, tan, esa, eso, ha, sus, e, pero, porque, tienen, d';
+        var
+        stoppedwordsobj = [];
+        var
+        uncommonArr = [];
+        stoppedwords = stoppedwords.split(',');
+        for (i = 0; i < stoppedwords.length; i++ ) {stoppedwordsobj[stoppedwords[i].trim()] = true;}
+        for ( i = 0; i < wordArr.length; i++ ) {word = wordArr[i].trim().toLowerCase(); if ( !stoppedwordsobj[word] ) {uncommonArr.push(word);}}
+        for (var i = uncommonArr.length - 1; i >= 0; i--) {if (uncommonArr[i]) {if (uncommonArr[i].startsWith("#")) {emit(uncommonArr[i], 1);}}}}""")
 
 
+        reduce = Code("""function( key, values ) {
+        var count = 0;
+        values.forEach(function(v) {
+            count +=v;
+        });
+        return count;
+        }""")
 
-class doCloud(BaseHandler):
-    def get(self):
+        result = mine.map_reduce(map, reduce, "myresults", query={'entities_mentions': name})
+
+        json_result = []
+        for doc in result.find():
+            json_result.append(doc)
+
         d = path.dirname(__file__)
-        #col_mask = np.array(Image.open(path.join(d, "images/col.png")))
+        col_mask = np.array(Image.open(path.join(d, "images/col.png")))
         #text = "y es es es es es es es es es es es es forcing the closing of the figure window in my giant loop, so I do"
-        text = open(path.join(d, 'images/red.txt')).read()
+        #text = open(path.join(d, 'images/red.txt')).read()
 
-        wordcloud = WordCloud( max_font_size=1000).generate(text)
+        jsonCloud = json.loads(dumps(json_result))
+        text = ""
+
+        for item in jsonCloud:
+            for x in xrange(1, int(item['value']*2)):
+                text += " "+item['_id']
+
+        wordcloud = WordCloud(width=1000, height=800, max_font_size=1000).generate(text)
         #wordcloud = WordCloud(mask=col_mask, max_font_size=1000).generate(text)
-       # fig = plt.figure(figsize=(4.2,6.2))
-        fig = plt.figure()
+        #fig = plt.figure(figsize=(4.2,6.2))
+        fig = plt.figure(figsize=(20,10))
         plt.imshow(wordcloud, interpolation='bilinear')
         plt.axis("off")
-        fig.savefig('images/foo.png')
-        self.write(dumps('OK'))
+        fig.savefig('images/foo.png', facecolor='k', bbox_inches='tight')
+        self.write(dumps(json_result))
+
+class doCloudTopic(BaseHandler):
+    def get(self, topic):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+
+        map = Code( """function()
+        {var
+        text = this.text;
+        var
+        wordArr = text.toLowerCase().split(" ");
+        var
+        stoppedwords = 'el, la, de, es, a, un, una, que, de, por, para, como, al, ?, !, +, y, no, los, las, en, se, lo, con, o, del, q, su, //t, https, si, mas, le, cuando, ellos, este, son, tan, esa, eso, ha, sus, e, pero, porque, tienen, d';
+        var
+        stoppedwordsobj = [];
+        var
+        uncommonArr = [];
+        stoppedwords = stoppedwords.split(',');
+        for (i = 0; i < stoppedwords.length; i++ ) {stoppedwordsobj[stoppedwords[i].trim()] = true;}
+        for ( i = 0; i < wordArr.length; i++ ) {word = wordArr[i].trim().toLowerCase(); if ( !stoppedwordsobj[word] ) {uncommonArr.push(word);}}
+        for (var i = uncommonArr.length - 1; i >= 0; i--) {if (uncommonArr[i]) {if (uncommonArr[i].startsWith("#")) {emit(uncommonArr[i], 1);}}}}""")
+
+
+        reduce = Code("""function( key, values ) {
+        var count = 0;
+        values.forEach(function(v) {
+            count +=v;
+        });
+        return count;
+        }""")
+
+        regx = re.compile(topic, re.IGNORECASE)
+        result = mine.map_reduce(map, reduce, "myresults", query={"text": regx})
+
+        json_result = []
+        for doc in result.find():
+            json_result.append(doc)
+
+        d = path.dirname(__file__)
+        col_mask = np.array(Image.open(path.join(d, "images/col.png")))
+        #text = "y es es es es es es es es es es es es forcing the closing of the figure window in my giant loop, so I do"
+        #text = open(path.join(d, 'images/red.txt')).read()
+
+        jsonCloud = json.loads(dumps(json_result))
+        text = ""
+
+        for item in jsonCloud:
+            for x in xrange(1, int(item['value']*2)):
+                text += " "+item['_id']
+
+        wordcloud = WordCloud(width=1000, height=800, max_font_size=1000).generate(text)
+        #wordcloud = WordCloud(mask=col_mask, max_font_size=1000).generate(text)
+        #fig = plt.figure(figsize=(4.2,6.2))
+        fig = plt.figure(figsize=(20,10))
+        plt.imshow(wordcloud, interpolation='bilinear')
+        plt.axis("off")
+        fig.savefig('images/foo.png', facecolor='k', bbox_inches='tight')
+        self.write(dumps(json_result))
+
+class getTweetsByHastag(BaseHandler):
+    def get(self, hash):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+
+        regx = re.compile(hash, re.IGNORECASE)
+        val = mine.find({"entities_hashtags": regx})
+        self.write(dumps(val))
 
 class getMostFrequentWordsByUser(BaseHandler):
     def get(self):
@@ -367,8 +477,7 @@ class getFrequencyByTopicUsedByUser(BaseHandler):
 
                 self.write(dumps(json))
 
-
-#EN PRODUCCION
+#EN DESARROLLO
 class getFrequencyByTopicByUsernameGetHashtags(BaseHandler):
             def get(self, name):
                 temas = ['Corrup', 'jep', 'farc', 'presidencial', 'paz', 'candida', 'coca', 'eln', 'narco', 'mermelada',
