@@ -45,7 +45,9 @@ class Application( tornado.web.Application ):
             (r"/getFrequencyByTopic", getFrequencyByTopic),
             (r"/getFrequencyByTopicByUsername/(.*)", getFrequencyByTopicByUsername),
             (r"/getFrequencyByTopicUsedByUser/(.*)", getFrequencyByTopicUsedByUser),
-            (r"/getTweetsByHastag/(.*)", getTweetsByHastag)
+            (r"/getTweetsByHastag/(.*)", getTweetsByHastag),
+            (r"/getUsersByCityandByTopic/(.*)/(.*)", getUsersByCityandByTopic),
+            (r"/getUserNature/(.*)", getUserNature),
 		]
         tornado.web.Application.__init__( self, handlers )
 
@@ -212,7 +214,7 @@ class getLastTweetsByAccount(BaseHandler):
         db = client['Grupo10']
         mine = db['tweets']
 
-        self.write(dumps(mine.aggregate([{ '$match': {'screen_name': account } }, {'$lookup': { 'from': 'tweets', 'localField': '_id', 'foreignField': 'in_reply_to_status_id', 'as': 'grp' }},{ '$project': { '_id': 1, 'text': 1 }},{'$sort': { 'tweet_date': -1 }},{ '$limit': 20 }])))
+        self.write(dumps(mine.aggregate([{ '$match': {'screen_name': account } }, {'$lookup': { 'from': 'tweets', 'localField': '_id', 'foreignField': 'in_reply_to_status_id', 'as': 'grp' }},{'$sort': { 'tweet_date': -1 }},{ '$project': { '_id': 1, 'text': 1 }},{ '$limit': 20 }])))
 
 class getLastReplayByTweetID(BaseHandler):
     def get(self, id):
@@ -243,10 +245,12 @@ class doCloudUser(BaseHandler):
         mine = db['tweets']
 
         map = Code( """function()
-        {var
-        text = this.text;
+        {
         var
-        wordArr = text.toLowerCase().split(" ");
+        text = this.text;
+        text = text.replace('.',' '); text = text.replace(',',' '); text = text.replace('(',' '); text = text.replace(')',' '); text = text.replace(':',' ');
+        var
+        wordArr = text.toLowerCase().split(' ');
         var
         stoppedwords = 'el, la, de, es, a, un, una, que, de, por, para, como, al, ?, !, +, y, no, los, las, en, se, lo, con, o, del, q, su, //t, https, si, mas, le, cuando, ellos, este, son, tan, esa, eso, ha, sus, e, pero, porque, tienen, d';
         var
@@ -303,8 +307,9 @@ class doCloudTopic(BaseHandler):
         map = Code( """function()
         {var
         text = this.text;
+        text = text.replace('.',' '); text = text.replace(',',' '); text = text.replace('(',' '); text = text.replace(')',' '); text = text.replace(':',' ');
         var
-        wordArr = text.toLowerCase().split(" ");
+        wordArr = text.toLowerCase().split(' ');
         var
         stoppedwords = 'el, la, de, es, a, un, una, que, de, por, para, como, al, ?, !, +, y, no, los, las, en, se, lo, con, o, del, q, su, //t, https, si, mas, le, cuando, ellos, este, son, tan, esa, eso, ha, sus, e, pero, porque, tienen, d';
         var
@@ -500,6 +505,41 @@ class getFrequencyByTopicByUsernameGetHashtags(BaseHandler):
 
 
 
+class getUsersByCityandByTopic(BaseHandler):
+    def get(self, city, topic):
+        client = MongoClient('bigdata-mongodb-01', 27017)
+        db = client['Grupo10']
+        mine = db['tweets']
+
+        regxCiudad = re.compile(city, re.IGNORECASE)
+        regxTopic = re.compile(topic, re.IGNORECASE)
+
+        a = mine.aggregate([
+                {'$match': { 'text' : regxTopic }},
+                {'$lookup': { 'from': 'users', 'localField': 'user_id', 'foreignField': 'user_id', 'as': "users"}},
+                {'$unwind' : "$users"},
+                {'$match' : {"users.location": regxCiudad}},
+                {'$sort': {"tweet_date": -1}},
+                {'$project' : {
+                     'screen_name' : 1,
+                     'text': 1,
+                     'entities_mentions': 1,
+                     'sentiment': 1
+                        }},
+                {'$limit': 50}
+                    ])
+        self.write(dumps(a))
+
+
+class getUserNature(BaseHandler):
+        def get(self, user):
+            client = MongoClient('bigdata-mongodb-01', 27017)
+            db = client['Grupo10']
+            mine = db['users']
+
+            a = mine.find({'screen_name':'AlvaroUribeVel'},{'user_category':1}).limit(1)
+
+            self.write(dumps(a))
 #Metodo main
 if __name__ == "__main__":
     app = Application()
